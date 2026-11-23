@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Carrera de esferas · Cars</title>
+<style>
+:root{--bg:#e9edf3;--fg:#1d2330;--card:rgba(255,255,255,.88);--acc:#d62828;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151b;--fg:#eef1f6;--card:rgba(34,40,51,.88)}}
+:root[data-theme="dark"]{--bg:#12151b;--fg:#eef1f6;--card:rgba(34,40,51,.88)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#c{display:block;width:100%;height:100%;touch-action:none}
+.top{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:12px;font-size:13px;opacity:.75}
+.bar{position:fixed;left:0;right:0;bottom:0;padding:12px 12px calc(env(safe-area-inset-bottom,0px) + 12px);display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap}
+.bar>*{background:var(--card);color:var(--fg);border:0;border-radius:14px;padding:12px 16px;font-size:15px;font-weight:600;backdrop-filter:blur(6px)}
+button{cursor:pointer}
+#go{background:var(--acc);color:#fff}
+</style></head>
+<body>
+<canvas id="c"></canvas>
+<div class="top">Arrastra para girar · pellizca para acercar</div>
+<div class="bar">
+  <button id="go">▶ Soltar 3 bolitas</button>
+  <button id="rs">↺ Reiniciar</button>
+  <span id="win">🏁 Meta: esperando</span>
+  <span id="cnt">Llegaron: 0/3</span>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+<script>
+const c=document.getElementById('c');
+const scene=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(45,1,0.1,200);
+cam.position.set(12,10,20);
+const ren=new THREE.WebGLRenderer({canvas:c,antialias:true,alpha:true});
+ren.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+const ctl=new THREE.OrbitControls(cam,c);
+ctl.target.set(0,7,0);ctl.enableDamping=true;ctl.maxDistance=45;ctl.minDistance=6;
+scene.add(new THREE.HemisphereLight(0xffffff,0x666677,.95));
+const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(8,16,14);scene.add(dl);
+
+const world=new CANNON.World();world.gravity.set(0,-30,0);world.solver.iterations=12;
+const mBall=new CANNON.Material(),mWall=new CANNON.Material();
+world.addContactMaterial(new CANNON.ContactMaterial(mBall,mWall,{friction:.06,restitution:.35}));
+world.addContactMaterial(new CANNON.ContactMaterial(mBall,mBall,{friction:.1,restitution:.3}));
+
+const L=(col,o)=>new THREE.MeshStandardMaterial(Object.assign({color:col,roughness:.8},o||{}));
+const CARD=L(0xb98d52),GOLD=L(0xd4a84a,{metalness:.45,roughness:.5}),RED=L(0xd62828,{roughness:.4}),DARK=L(0x24160f),
+  GLASS=L(0x9fd8ff,{transparent:true,opacity:.35,roughness:.1}),BLACK=L(0x111111),WHITE=L(0xf4f4f4);
+const statics=[];
+// mk: caja visual (mat) + cuerpo estatico. mat null = solo fisica
+function mk(parent,w,h,d,x,y,z,mat,o){o=o||{};
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat||CARD);
+  m.visible=!!mat;m.position.set(x,y,z);
+  if(o.o)m.rotation.order=o.o;
+  if(o.r)m.rotation.set(o.r[0],o.r[1],o.r[2]);
+  parent.add(m);
+  if(!o.vis){m.userData.half=[w/2,h/2,d/2];statics.push(m);}
+  return m;}
+function tex(fn){const cv=document.createElement('canvas');cv.width=cv.height=512;fn(cv.getContext('2d'));return L(0xffffff,{map:new THREE.CanvasTexture(cv),roughness:.7});}
+const sideUp=tex(g=>{g.fillStyle='#2a1710';g.fillRect(0,0,512,512);g.fillStyle='#ffd400';g.beginPath();g.moveTo(512,0);g.lineTo(512,512);g.lineTo(150,512);g.closePath();g.fill();
+  g.font='italic 900 130px sans-serif';g.textAlign='center';g.fillStyle='#d62828';g.strokeStyle='#fff';g.lineWidth=8;g.strokeText('Cars',256,150);g.fillText('Cars',256,150);
+  g.fillStyle='#d62828';g.beginPath();g.ellipse(300,380,150,70,0,0,7);g.fill();g.fillStyle='#fff';g.font='900 70px sans-serif';g.fillText('95',320,405);});
+const sideLow=tex(g=>{g.fillStyle='#181212';g.fillRect(0,0,512,512);const gr=g.createLinearGradient(0,60,0,380);gr.addColorStop(0,'#ffd400');gr.addColorStop(1,'#e8431a');
+  g.fillStyle=gr;g.font='italic 900 330px sans-serif';g.textAlign='center';g.fillText('95',256,360);
+  for(let i=0;i<16;i++)for(let j=0;j<2;j++){g.fillStyle=(i+j)%2?'#fff':'#111';g.fillRect(i*32,440+j*36,32,36);}});
+
+// carcasas: interior x[-3,3] z[-2.6,2.6]
+mk(scene,6.24,12.24,.12,0,6,-2.66,[DARK,DARK,DARK,DARK,CARD,DARK]);
+[[0,sideLow],[6,sideUp]].forEach(([y0,s])=>{
+  mk(scene,.12,6,5.4,-3.06,y0+3,0,[CARD,s,CARD,CARD,CARD,CARD]);
+  mk(scene,.12,6,5.4,3.06,y0+3,0,[s,CARD,CARD,CARD,CARD,CARD]);});
+mk(scene,6.24,.12,3.45,0,12.06,.875,DARK);mk(scene,6.24,.12,.55,0,12.06,-2.325,DARK);
+mk(scene,2.7,.12,.6,-1.65,12.06,-1.75,DARK);mk(scene,2.7,.12,.6,1.65,12.06,-1.75,DARK);
+mk(scene,2.05,.12,.6,-1.975,12.06,-1.15,DARK);mk(scene,.7,.12,.6,0,12.06,-1.15,DARK);mk(scene,2.05,.12,.6,1.975,12.06,-1.15,DARK);          // techo
+mk(scene,6.24,.2,5.4,0,.1,0,CARD);              // piso cajon
+// piso superior con agujero (x -.5...5, z 1..2)
+mk(scene,2.5,.2,5.2,-1.75,6,0);mk(scene,2.5,.2,5.2,1.75,6,0);
+mk(scene,1,.2,3.6,0,6,-.8);mk(scene,1,.2,.6,0,6,2.3);
+// tubo (cuello de la botella)
+[[0,1,.5,0,1.5],[0,.1,1,-.55,1.5],[0,.1,1,.55,1.5]];
+mk(scene,1.2,1.3,.1,0,6.35,1.0,GLASS);mk(scene,1.2,1.3,.1,0,6.35,2.0,GLASS);
+mk(scene,.1,1.3,1,-.55,6.35,1.5,GLASS);mk(scene,.1,1.3,1,.55,6.35,1.5,GLASS);
+// embudo
+for(let i=0;i<12;i++){const a=i*Math.PI/6;
+  mk(scene,.72,1.62,.1,Math.sin(a)*.8,7.75,1.5+Math.cos(a)*.8,GLASS,{o:'YXZ',r:[.38,a,0]});}
+// vidrio frontal (fisica + visual tenue)
+mk(scene,6.2,10.5,.1,0,6.95,2.66,null);
+const gl=new THREE.Mesh(new THREE.PlaneGeometry(6.1,12),new THREE.MeshBasicMaterial({color:0xaadfff,transparent:true,opacity:.05,depthWrite:false}));
+gl.position.set(0,6,2.62);scene.add(gl);
+// cajon blanco + perilla
+mk(scene,2.77,1.7,.1,-1.735,.85,2.7,WHITE);mk(scene,2.77,1.7,.1,1.735,.85,2.7,WHITE);
+mk(scene,.7,.85,.1,0,1.275,2.7,WHITE);mk(scene,.7,.2,.1,0,.1,2.7,WHITE);
+
+// rampa con postes (superior)
+const ramp=new THREE.Group();ramp.position.set(0,10.15,0);ramp.rotation.x=.34;scene.add(ramp);
+mk(ramp,5.9,.12,4.3,0,0,-.55,GOLD);
+mk(ramp,2.52,.6,.1,1.85,.3,.9,GOLD,{r:[0,.588,0]});
+mk(ramp,2.52,.6,.1,-1.85,.3,.9,GOLD,{r:[0,-.588,0]});
+[.4,.9,1.4].forEach(z=>mk(ramp,.1,.02,.25,0,.07,z,BLACK,{vis:true}));
+[[-1.9,[-1.95,-.65,.65,1.95]],[-1.1,[-2.6,-1.3,0,1.3,2.6]],[-.3,[-1.95,-.65,.65,1.95]]].forEach(([z,xs])=>xs.forEach(x=>{
+  const p=new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,.7,10),CARD);p.position.set(x,.41,z);ramp.add(p);
+  mk(ramp,.14,.7,.14,x,.41,z,null);}));
+// pistas inferiores
+const V=a=>new THREE.Vector3(a[0],a[1],a[2]);
+function seg(A,B,w,h,xo,yo,mat){
+  const a=V(A),b=V(B),d=b.clone().sub(a),len=d.length(),z=d.clone().normalize();
+  const x=new THREE.Vector3(0,1,0).cross(z).normalize(),y=z.clone().cross(x);
+  const g=new THREE.Group();g.position.copy(a).add(b).multiplyScalar(.5);
+  g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z));scene.add(g);
+  mk(g,w,h,len+.16,xo,yo,0,mat);}
+const flr=(A,B,m)=>seg(A,B,1,.12,0,-.06,m);
+const rl=(A,B,m)=>seg(A,B,.1,.5,0,.19,m);
+// espiral roja (curva): sale del centro, va a la derecha, al fondo y termina por la izquierda
+const sp=[[-.5,5.27,1.6]];
+for(let i=0;i<=14;i++){const t=i/14,f=t*1.5*Math.PI,r=1.5+.8*t;sp.push([r*Math.sin(f),5.15-1.7*t,.1+r*Math.cos(f)]);}
+for(let i=0;i<sp.length-1;i++){flr(sp[i],sp[i+1],RED);seg(sp[i],sp[i+1],.1,.5,-.55,.19,RED);seg(sp[i],sp[i+1],.1,.5,.55,.19,RED);}
+// tapa al inicio de la espiral (bajo el tubo) para que ninguna esfera se salga por ahi
+mk(scene,.1,.5,1.2,-.56,5.46,1.6,RED);
+// recta izquierda hacia el fondo (siempre en bajada, continua)
+flr([-2.3,2.75,1.9],[-2.3,2.24,-1.5],GOLD);
+rl([-2.85,2.75,1.9],[-2.85,2.12,-2.55],GOLD);
+rl([-1.75,2.75,1.9],[-1.75,2.24,-1.5],GOLD);
+mk(scene,1.2,.6,.1,-2.3,3.0,2.05,GOLD);
+// fondo de izquierda a derecha (esquina cuadrada, sin hueco)
+flr([-2.75,2.22,-2.0],[1.85,1.62,-2.0],GOLD);
+rl([-2.85,2.233,-2.55],[2.85,1.49,-2.55],GOLD);
+rl([-1.75,2.09,-1.45],[1.75,1.635,-1.45],GOLD);
+// lado derecho al frente (esquina cuadrada, sin hueco)
+// el piso arranca desde el fondo para tapar el hueco de la esquina
+flr([2.3,1.684,-2.42],[2.3,1.28,-.4],GOLD);
+rl([2.85,1.71,-2.55],[2.85,1.2496,-.248],GOLD);   // riel exterior: termina justo donde empieza el de la diagonal
+rl([1.75,1.49,-1.45],[1.75,1.3256,-.628],GOLD);   // riel interior: se une con el riel izq. de la diagonal
+// relleno de la esquina exterior (union rampa recta -> diagonal)
+mk(scene,.35,.12,.3,2.625,1.167,-.21,GOLD,{r:[.1974,0,0]});
+// unica diagonal: baja hacia el centro y entra RECTA al hueco de la pared frontal
+const DP=t=>[2.3-.7071*t,1.25-.2921*t,-.4+.7071*t];
+flr(DP(0),DP(3.1027),GOLD);
+seg(DP(.3042),DP(3.05),.1,.5,-.55,.19,GOLD);      // riel izquierdo
+seg(DP(-.1514),DP(3.3019),.1,.5,.55,.19,GOLD);    // riel derecho
+// canal recto final (mismo ancho interior que la capsula) que atraviesa el hueco
+seg([0,.33,1.5],[0,.2177,2.68],.6,.12,0,-.06,GOLD);
+rl([-.3,.33,1.5],[-.3,.2177,2.68],GOLD);
+rl([.3,.2388,2.458],[.3,.2177,2.68],GOLD);
+// capsula de la meta: afuera de la pared, cabe UNA sola esfera
+const CAP=GOLD;
+mk(scene,.6,.1,.55,0,.15,3.025,CAP);
+mk(scene,.06,.5,.55,-.28,.45,3.025,CAP);mk(scene,.06,.5,.55,.28,.45,3.025,CAP);
+mk(scene,.62,.5,.06,0,.45,3.28,CAP);
+// carrito decorativo
+const car=new THREE.Group();car.position.set(-1.2,.38,.2);scene.add(car);
+const cb=new THREE.Mesh(new THREE.BoxGeometry(.9,.25,.45),RED);car.add(cb);
+const cc=new THREE.Mesh(new THREE.BoxGeometry(.4,.2,.38),RED);cc.position.set(-.05,.2,0);car.add(cc);
+[[-.28,.22],[.28,.22],[-.28,-.22],[.28,-.22]].forEach(([x,z])=>{const w=new THREE.Mesh(new THREE.CylinderGeometry(.1,.1,.08,12),BLACK);w.rotation.x=Math.PI/2;w.position.set(x,-.1,z);car.add(w);});
+// cono
+const cone=new THREE.Mesh(new THREE.CylinderGeometry(.35,1.3,3,24),L(0xff7a00,{transparent:true,opacity:.45,depthWrite:false}));cone.position.set(0,13.62,-1.3);scene.add(cone);
+const band=new THREE.Mesh(new THREE.CylinderGeometry(.62,.9,.5,24),L(0xf4f4f4,{transparent:true,opacity:.7,depthWrite:false}));band.position.set(0,13.7,-1.3);scene.add(band);
+const HOLES=[[-.65,-1.15],[.65,-1.15],[0,-1.75]];
+const gates=HOLES.map(h=>{const m=new THREE.Mesh(new THREE.BoxGeometry(.64,.06,.64),GOLD);m.position.set(h[0],12.09,h[1]);scene.add(m);
+  const b=new CANNON.Body({mass:0,material:mWall});b.addShape(new CANNON.Box(new CANNON.Vec3(.32,.03,.32)));b.position.set(h[0],12.09,h[1]);world.addBody(b);return{m,b};});
+
+// cuerpos estaticos
+scene.updateMatrixWorld(true);
+statics.forEach(m=>{const p=new THREE.Vector3(),q=new THREE.Quaternion(),s=new THREE.Vector3();m.matrixWorld.decompose(p,q,s);
+  const h=m.userData.half,b=new CANNON.Body({mass:0,material:mWall});
+  b.addShape(new CANNON.Box(new CANNON.Vec3(h[0],h[1],h[2])));b.position.set(p.x,p.y,p.z);b.quaternion.set(q.x,q.y,q.z,q.w);world.addBody(b);});
+
+// bolitas (3): empiezan dentro del cono, sobre compuertas en los tres huequitos
+const COL=[{c:0xe63946,n:'roja'},{c:0x4cc9f0,n:'azul'},{c:0xffd23f,n:'amarilla'}],geo=new THREE.SphereGeometry(.2,20,14);
+const balls=COL.map((k,i)=>{const m=new THREE.Mesh(geo,L(k.c,{roughness:.3}));scene.add(m);
+  const b=new CANNON.Body({mass:.1,material:mBall,linearDamping:.05,angularDamping:.05});b.addShape(new CANNON.Sphere(.2));world.addBody(b);
+  return{m,b,n:k.n,i,rel:false,done:false,idle:0};});
+const cnt=document.getElementById('cnt'),win=document.getElementById('win');
+let t=0,running=false,won=null,lid=null,inBox=0;
+function reset(){running=false;t=0;inBox=0;won=null;
+  if(lid){scene.remove(lid.m);world.removeBody(lid.b);lid=null;}
+  gates.forEach(g=>{g.m.visible=true;if(world.bodies.indexOf(g.b)<0)world.addBody(g.b);});
+  balls.forEach(o=>{const h=HOLES[o.i];o.b.position.set(h[0],12.35,h[1]);o.b.velocity.set(0,0,0);o.b.angularVelocity.set(0,0,0);
+    o.b.quaternion.set(0,0,0,1);o.rel=false;o.done=false;o.idle=0;o.m.position.copy(o.b.position);});
+  cnt.textContent='Llegaron: 0/3';win.textContent='🏁 Meta: esperando';}
+reset();
+document.getElementById('go').onclick=()=>{reset();running=true;};
+document.getElementById('rs').onclick=reset;
+function size(){const w=c.clientWidth,h=c.clientHeight;ren.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();}
+addEventListener('resize',size);
+cam.position.setLength(innerWidth<innerHeight?50:34);
+size();
+let last=performance.now();
+function tick(now){
+  const dt=Math.min((now-last)/1000,.05);last=now;
+  if(running){t+=dt;balls.forEach(o=>{if(!o.rel&&t>=.2){o.rel=true;const g=gates[o.i];g.m.visible=false;world.removeBody(g.b);}});}
+  world.step(1/120,dt,8);
+  balls.forEach(o=>{
+    o.m.position.copy(o.b.position);o.m.quaternion.copy(o.b.quaternion);
+    const p=o.b.position;
+    if(!won&&p.z>2.85&&Math.abs(p.x)<.3&&p.y<.7){won=o;win.textContent='🏆 Ganó la bolita '+o.n;}
+    if(o.rel&&!o.done&&p.y<.46){o.done=true;inBox++;cnt.textContent='Llegaron: '+inBox+'/3';}
+    if(o.rel&&!o.done){o.idle=o.b.velocity.length()<.15?o.idle+dt:0;
+      if(o.idle>1.2){o.b.applyImpulse(new CANNON.Vec3((Math.random()-.5)*.2,.15,(Math.random()-.5)*.2),o.b.position);o.idle=0;}}
+  });
+  ctl.update();ren.render(scene,cam);requestAnimationFrame(tick);}
+requestAnimationFrame(tick);
+</script>
+</body></html>
